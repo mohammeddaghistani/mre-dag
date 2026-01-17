@@ -3,118 +3,114 @@ import pandas as pd
 import requests
 from streamlit_gsheets import GSheetsConnection
 
-# 1. إعدادات الهوية البصرية والصفحة
+# 1. إعدادات الهوية البصرية (تبسيط لتجنب TypeError)
 st.set_page_config(page_title="إستدامة | نظام التقييم الذكي", layout="wide")
 
-st.markdown("""
+st.write("""
     <style>
-    .main-title { color: #1a1a1a; text-align: center; border-bottom: 3px solid #c5a059; padding-bottom: 10px; }
-    .card { background: #f9f9f9; padding: 20px; border-radius: 15px; border-right: 8px solid #c5a059; margin-bottom: 15px; }
-    .stButton>button { background-color: #c5a059; color: white; font-weight: bold; width: 100%; border-radius: 10px; }
+    .main-title { color: #1a1a1a; text-align: center; border-bottom: 2px solid #c5a059; padding-bottom: 10px; }
+    .card { background: #f9f9f9; padding: 20px; border-radius: 12px; border-right: 6px solid #c5a059; margin-bottom: 15px; }
+    .stButton>button { background-color: #c5a059; color: white; font-weight: bold; width: 100%; border-radius: 8px; }
     </style>
     """, unsafe_allow_index=True)
 
-# 2. الاتصال ببيانات Google Sheets
+# 2. الاتصال ببنك المعلومات
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 3. إدارة حالة الجلسة (Session State)
-if 'auth_success' not in st.session_state:
-    st.session_state.auth_success = False
-    st.session_state.otp_sent = False
-    st.session_state.correct_otp = None
-    st.session_state.user_email = ""
-    st.session_state.user_details = None
+# 3. إدارة الجلسة (Login State)
+if 'auth_active' not in st.session_state:
+    st.session_state.update({
+        'auth_active': False,
+        'otp_sent': False,
+        'correct_otp': None,
+        'user_email': "",
+        'user_info': None
+    })
 
-# --- بوابة الدخول (OTP) ---
-if not st.session_state.auth_success:
+# --- المرحلة الأولى: بوابة الدخول بالرمز المؤقت (OTP) ---
+if not st.session_state.auth_active:
     st.markdown("<h1 class='main-title'>🏛️ دخول منصة إستدامة</h1>", unsafe_allow_index=True)
     col1, col2, col3 = st.columns([1, 1.5, 1])
     
     with col2:
         st.markdown("<div class='card'>", unsafe_allow_index=True)
         if not st.session_state.otp_sent:
-            email_input = st.text_input("أدخل البريد الإلكتروني المسجل")
+            email_in = st.text_input("البريد الإلكتروني المسجل")
             if st.button("إرسال رمز الدخول"):
-                # جلب المستخدمين للتحقق
                 users_df = conn.read(worksheet="Users_DB", ttl="0")
-                if email_input.strip() in users_df['البريد الإلكتروني (Email)'].values:
-                    # طلب الرمز من Google Script
+                if email_in.strip() in users_df['البريد الإلكتروني (Email)'].values:
+                    # استدعاء رابط الـ Script الذي زودتني به
                     script_url = st.secrets["auth"]["script_url"]
                     try:
-                        response = requests.get(f"{script_url}?email={email_input.strip()}")
-                        st.session_state.correct_otp = response.text.strip()
+                        res = requests.get(f"{script_url}?email={email_in.strip()}")
+                        st.session_state.correct_otp = res.text.strip()
                         st.session_state.otp_sent = True
-                        st.session_state.user_email = email_input.strip()
-                        st.session_state.user_details = users_df[users_df['البريد الإلكتروني (Email)'] == email_input.strip()].iloc[0]
-                        st.success(f"تم إرسال الرمز إلى بريدك الإلكتروني")
+                        st.session_state.user_email = email_in.strip()
+                        st.session_state.user_info = users_df[users_df['البريد الإلكتروني (Email)'] == email_in.strip()].iloc[0]
+                        st.success("تم إرسال الرمز بنجاح")
                         st.rerun()
                     except:
-                        st.error("خطأ في الاتصال بمحرك الإرسال")
+                        st.error("فشل الاتصال بمحرك الإرسال")
                 else:
-                    st.error("عذراً، هذا البريد غير مسجل.")
+                    st.error("هذا البريد غير مسجل.")
         else:
-            st.info(f"الرمز أُرسل إلى: {st.session_state.user_email}")
-            otp_input = st.text_input("أدخل الرمز المكون من 6 أرقام")
+            st.info(f"أُرسل الرمز إلى: {st.session_state.user_email}")
+            otp_in = st.text_input("أدخل الرمز المستلم")
             if st.button("تحقق ودخول"):
-                if otp_input.strip() == st.session_state.correct_otp:
-                    st.session_state.auth_success = True
+                if otp_in.strip() == st.session_state.correct_otp:
+                    st.session_state.auth_active = True
                     st.rerun()
                 else:
                     st.error("الرمز غير صحيح")
-            if st.button("تغيير البريد"):
+            if st.button("رجوع"):
                 st.session_state.otp_sent = False
                 st.rerun()
         st.markdown("</div>", unsafe_allow_index=True)
 
-# --- الواجهة الرئيسية (بعد نجاح الدخول) ---
+# --- المرحلة الثانية: واجهة التقييم (تظهر بعد الدخول بنجاح) ---
 else:
-    st.sidebar.markdown(f"### مرحباً بك\n**{st.session_state.user_details['الاسم (Name)']}**")
-    st.sidebar.info(f"الدور: {st.session_state.user_details['الدور (Role)']}")
+    st.sidebar.markdown(f"### مرحباً بك\n**{st.session_state.user_info['الاسم (Name)']}**")
     if st.sidebar.button("تسجيل الخروج"):
-        st.session_state.auth_success = False
+        st.session_state.auth_active = False
         st.session_state.otp_sent = False
         st.rerun()
 
-    tab1, tab2 = st.tabs(["🎯 محاكي التقييم العقاري", "📊 بنك الصفقات"])
+    tab1, tab2 = st.tabs(["🎯 محاكي التقييم", "📊 بنك الصفقات"])
 
     with tab1:
         st.subheader("إجراء تقييم جديد")
-        with st.container():
-            st.markdown("<div class='card'>", unsafe_allow_index=True)
-            c1, c2 = st.columns(2)
-            with c1:
-                area = st.number_input("مساحة العقار (م2)", value=100)
-                loc_score = st.select_slider("جودة الموقع", options=[1, 2, 3, 4, 5], value=3)
-            with c2:
-                spec_score = st.select_slider("المواصفات الفنية", options=[1, 2, 3, 4, 5], value=3)
-                age_score = st.select_slider("الحالة/العمر", options=[1, 2, 3, 4, 5], value=3)
-            
-            if st.button("بدء عملية التقييم"):
-                try:
-                    deals = conn.read(worksheet="Deals_DB", ttl="1m")
-                    # تحويل البيانات وحساب متوسط سعر المتر
-                    deals['price'] = pd.to_numeric(deals['القيمة السنوية'], errors='coerce')
-                    deals['size'] = pd.to_numeric(deals['المساحة'], errors='coerce')
-                    deals['rate'] = deals['price'] / deals['size']
-                    avg_base = deals['rate'].mean()
-                    
-                    # مصفوفة التعديل (الموقع 40%، المواصفات 35%، العمر 25%)
-                    adj = ((loc_score - 3) * 0.40 * 0.1) + \
-                          ((spec_score - 3) * 0.35 * 0.1) + \
-                          ((age_score - 3) * 0.25 * 0.1)
-                    
-                    final_rate = avg_base * (1 + adj)
-                    
-                    st.divider()
-                    st.metric("سعر المتر التقديري", f"{round(final_rate, 2)} ريال")
-                    st.metric("الإيجار السنوي المقدر", f"{round(final_rate * area, 2)} ريال")
-                except Exception as e:
-                    st.error(f"خطأ في الحساب: {e}")
-            st.markdown("</div>", unsafe_allow_index=True)
+        st.markdown("<div class='card'>", unsafe_allow_index=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            area = st.number_input("المساحة (م2)", value=100)
+            loc = st.select_slider("جودة الموقع", options=[1, 2, 3, 4, 5], value=3)
+        with c2:
+            spec = st.select_slider("المواصفات الفنية", options=[1, 2, 3, 4, 5], value=3)
+            age = st.select_slider("الحالة التشغيلية", options=[1, 2, 3, 4, 5], value=3)
+        
+        if st.button("بدء عملية التحليل الحية"):
+            try:
+                deals = conn.read(worksheet="Deals_DB", ttl="1m")
+                # معالجة البيانات رقمياً (تجنب TypeError)
+                deals['price'] = pd.to_numeric(deals['القيمة السنوية'], errors='coerce')
+                deals['size'] = pd.to_numeric(deals['المساحة'], errors='coerce')
+                deals['rate'] = deals['price'] / deals['size']
+                base_rate = deals['rate'].mean()
+                
+                # مصفوفة التعديل الرسمية (الموقع 40%، المواصفات 35%، العمر 25%)
+                adjustment = ((loc - 3) * 0.40 * 0.1) + ((spec - 3) * 0.35 * 0.1) + ((age - 3) * 0.25 * 0.1)
+                final_val = base_rate * (1 + adjustment)
+                
+                st.divider()
+                r1, r2 = st.columns(2)
+                r1.metric("سعر المتر التقديري", f"{round(final_val, 2)} ريال")
+                r2.metric("الإيجار السنوي المقدر", f"{round(final_val * area, 2)} ريال")
+            except Exception as e:
+                st.error(f"خطأ في معالجة البيانات: {e}")
+        st.markdown("</div>", unsafe_allow_index=True)
 
     with tab2:
         st.subheader("سجل الصفقات المعتمدة")
-        deals_view = conn.read(worksheet="Deals_DB", ttl="1m")
-        st.dataframe(deals_view, use_container_width=True)
+        st.dataframe(conn.read(worksheet="Deals_DB", ttl="1m"), use_container_width=True)
 
-st.markdown("<center>منصة إستدامة | جميع الحقوق محفوظة 2026 ©</center>", unsafe_allow_index=True)
+st.markdown("<center>إستدامة | تطوير: محمد داغستاني 2026 ©</center>", unsafe_allow_index=True)
