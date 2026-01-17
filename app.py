@@ -3,39 +3,47 @@ import pandas as pd
 import numpy as np
 from streamlit_gsheets import GSheetsConnection
 
-# --- إعدادات الهوية البصرية الفاخرة ---
-st.set_page_config(page_title="إستدامة | المنصة الاستراتيجية", layout="wide")
+# --- 1. الإعدادات البصرية (هوية mdaghistani.com الفاخرة) ---
+st.set_page_config(page_title="إستدامة | المنصة الاستراتيجية", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS مخصص ليتناسب مع mdaghistani.com والجوال
 st.markdown("""
     <style>
     :root { --primary: #1a1a1a; --gold: #c5a059; }
     .stApp { background-color: #ffffff; }
-    .main-title { color: var(--primary); text-align: center; border-bottom: 3px solid var(--gold); padding-bottom: 10px; }
-    .card { background: #f9f9f9; padding: 20px; border-radius: 15px; border-right: 8px solid var(--gold); margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-    .stButton>button { background-color: var(--gold); color: white; width: 100%; border-radius: 10px; font-weight: bold; border: none; height: 3.5em; }
+    /* تنسيق العناوين والخطوط */
+    h1, h2, h3 { color: var(--primary); text-align: center; font-family: 'Arial'; }
+    .main-title { border-bottom: 3px solid var(--gold); padding-bottom: 10px; margin-bottom: 25px; }
+    /* تنسيق الكروت والحاويات */
+    .card { background: #f9f9f9; padding: 25px; border-radius: 15px; border-right: 10px solid var(--gold); 
+            margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    /* تنسيق الأزرار */
+    .stButton>button { background-color: var(--gold); color: white; width: 100%; border-radius: 10px; 
+                       font-weight: bold; border: none; height: 3.5em; transition: 0.3s; }
+    .stButton>button:hover { background-color: var(--primary); }
+    /* تحسين واجهة الجوال */
+    @media (max-width: 600px) { .stMetric { font-size: 14px; } .card { padding: 15px; } }
     </style>
     """, unsafe_allow_index=True)
 
-# --- محرك الاتصال ببنك المعلومات الحية (Google Sheets) ---
+# --- 2. محرك الاتصال ببنك المعلومات (Google Sheets) ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def get_deals():
-    # استدعاء بيانات الصفقات من الورقة المحددة في Secrets
-    return conn.read(worksheet="Deals_DB", ttl="5m")
+def get_data(sheet_name):
+    # جلب البيانات حياً من الرابط المرتبط في Secrets 
+    return conn.read(worksheet=sheet_name, ttl="1m")
 
-def get_users():
-    # استدعاء بيانات المستخدمين للتحقق من الصلاحيات
-    return conn.read(worksheet="Users_DB", ttl="10m")
-
-# --- محرك التقييم الذكي (مصفوفة التعديل - دليل 2023) ---
+# --- 3. محرك التقييم الذكي (مصفوفة التعديل المعتمدة) ---
 def valuation_engine(subject, bank):
+    # الأوزان النسبية: الموقع 40%، المواصفات 35%، العمر 25% [cite: 925]
     weights = {'loc': 0.40, 'spec': 0.35, 'age': 0.25}
-    bank['rent_sqm'] = bank['الإيجار_السنوي'] / bank['المساحة']
+    
+    # تنظيف البيانات وحساب السعر المرجعي للمتر
+    bank = bank.copy()
+    bank['rent_sqm'] = bank['القيمة السنوية'] / bank['المساحة']
     
     adjusted_rates = []
     for _, row in bank.iterrows():
-        # مصفوفة التسويات النوعية
+        # معادلة التسويات النوعية [cite: 1049, 1513]
         adj = ((subject['loc'] - row['الموقع']) / subject['loc'] * weights['loc']) + \
               ((subject['spec'] - row['المواصفات']) / subject['spec'] * weights['spec']) + \
               ((subject['age'] - row['العمر']) / subject['age'] * weights['age'])
@@ -43,68 +51,81 @@ def valuation_engine(subject, bank):
     
     return np.mean(adjusted_rates)
 
-# --- واجهة تسجيل الدخول للأمان السحابي ---
+# --- 4. إدارة نظام الدخول والأمان (Session State) ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
+# واجهة تسجيل الدخول
 if not st.session_state.logged_in:
     st.markdown("<h1 class='main-title'>🏛️ منصة إستدامة العقارية</h1>", unsafe_allow_index=True)
-    with st.container():
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
         st.markdown("<div class='card'>", unsafe_allow_index=True)
-        user_input = st.text_input("اسم المستخدم")
+        st.subheader("بوابة الدخول الآمن")
+        email_input = st.text_input("البريد الإلكتروني")
         pass_input = st.text_input("كلمة المرور", type="password")
         if st.button("دخول النظام"):
-            users_df = get_users()
-            user_row = users_df[(users_df['Username'] == user_input) & (users_df['Password'] == pass_input)]
-            if not user_row.empty:
+            users_df = get_data("Users_DB")
+            user_row = users_df[users_df['البريد الإلكتروني'] == email_input]
+            if not user_row.empty and str(user_row.iloc[0]['كلمة المرور']) == pass_input:
                 st.session_state.logged_in = True
-                st.session_state.user_role = user_row.iloc[0]['Role']
-                st.session_state.user_name = user_row.iloc[0]['FullName']
+                st.session_state.user_info = user_row.iloc[0].to_dict()
                 st.rerun()
             else:
-                st.error("بيانات الدخول غير صحيحة")
+                st.error("بيانات الدخول غير صحيحة أو الحساب غير نشط")
         st.markdown("</div>", unsafe_allow_index=True)
 else:
-    # --- واجهة التطبيق الرئيسية بعد الدخول ---
+    # --- 5. واجهة التطبيق الرئيسية بعد الدخول ---
     st.sidebar.image("https://mdaghistani.com/wp-content/uploads/2022/04/logo-new.png")
-    st.sidebar.success(f"مرحباً: {st.session_state.user_name}")
-    st.sidebar.info(f"صلاحية الحساب: {st.session_state.user_role}")
+    st.sidebar.success(f"مرحباً: {st.session_state.user_info['الاسم']}")
+    st.sidebar.info(f"الصلاحية: {st.session_state.user_info['الدور']}")
     if st.sidebar.button("تسجيل الخروج"):
         st.session_state.logged_in = False
         st.rerun()
 
-    tab1, tab2, tab3 = st.tabs(["🎯 محاكي التقييم", "📊 بنك الصفقات", "⚙️ الإدارة"])
+    st.markdown(f"<h1 class='main-title'>🏛️ نظام التقييم والتحليل الاستراتيجي</h1>", unsafe_allow_index=True)
+
+    tab1, tab2, tab3, tab4 = st.tabs(["🎯 محاكي التقييم", "📊 بنك الصفقات", "📤 إضافة صفقات", "⚙️ الإدارة"])
 
     with tab1:
-        st.subheader("إجراء تقييم جديد (مقارنة المبيعات)")
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            s_area = st.number_input("المساحة الإجمالية (م2)", value=1000)
-            st.write("**درجات الجودة (1-5):**")
-            c_a, c_b, c_c = st.columns(3)
-            s_loc = c_a.slider("الموقع", 1, 5, 3)
-            s_spec = c_b.slider("المواصفات", 1, 5, 3)
-            s_age = c_c.slider("الحالة/العمر", 1, 5, 3)
-            
-        if st.button("توليد التقرير السعري"):
-            deals_df = get_deals()
+        st.markdown("<div class='card'>", unsafe_allow_index=True)
+        st.subheader("إجراء تقييم جديد (طريقة مقارنة المبيعات)")
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            subject_area = st.number_input("مساحة العقار المطلوب تقييمه (م2)", value=1000)
+            st.write("**تحديد درجات الجودة (1-5):**")
+            sl1, sl2, sl3 = st.columns(3)
+            s_loc = sl1.slider("الموقع", 1, 5, 3)
+            s_spec = sl2.slider("المواصفات", 1, 5, 3)
+            s_age = sl3.slider("الحالة/العمر", 1, 5, 3)
+        with c2:
+            st.info("يتم الحساب بناءً على متوسط الصفقات في بنك المعلومات مع تطبيق نسب التعديل النظامية[cite: 1049].")
+        
+        if st.button("توليد التقدير الإيجاري"):
+            deals_df = get_data("Deals_DB")
             final_sqm = valuation_engine({'loc': s_loc, 'spec': s_spec, 'age': s_age}, deals_df)
-            
-            st.markdown("<br>", unsafe_allow_index=True)
-            res1, res2 = st.columns(2)
-            with res1:
-                st.markdown(f"<div class='card'><h4>سعر المتر التقديري</h4><h2>{round(final_sqm, 2)} ريال</h2></div>", unsafe_allow_index=True)
-            with res2:
-                st.markdown(f"<div class='card'><h4>إجمالي الإيجار السنوي</h4><h2>{round(final_sqm * s_area, 2)} ريال</h2></div>", unsafe_allow_index=True)
+            st.markdown("---")
+            res_c1, res_c2 = st.columns(2)
+            res_c1.metric("إيجار المتر التقديري", f"{round(final_sqm, 2)} ريال")
+            res_c2.metric("إجمالي الإيجار السنوي", f"{round(final_sqm * subject_area, 2)} ريال")
+        st.markdown("</div>", unsafe_allow_index=True)
 
     with tab2:
-        st.subheader("بنك الصفقات المعتمدة")
-        st.dataframe(get_deals(), use_container_width=True, hide_index=True)
+        st.subheader("سجل الصفقات المعتمدة - تحديث حي")
+        st.dataframe(get_data("Deals_DB"), use_container_width=True, hide_index=True)
 
     with tab3:
-        if st.session_state.user_role == "Admin":
-            st.subheader("لوحة تحكم المدير")
-            st.write("يمكنك إضافة صفقات جديدة مباشرة عبر Google Sheets وسيتم تحديثها هنا.")
-            st.link_button("فتح ملف البيانات السحابي", "https://docs.google.com/spreadsheets/d/your_id")
+        st.subheader("رفع صفقات جديدة")
+        st.write("يمكنك رفع ملف صفقات جديد لمراجعته من قبل الإدارة.")
+        st.file_uploader("اختر ملف Excel أو CSV", type=['xlsx', 'csv'])
+        st.button("إرسال للمراجعة")
+
+    with tab4:
+        if st.session_state.user_info['الدور'] == "Admin":
+            st.subheader("إدارة المنظومة")
+            st.write("التحكم الكامل في بنك المعلومات والمستخدمين عبر السحابة.")
+            st.link_button("فتح قاعدة البيانات في Google Sheets", "https://docs.google.com/spreadsheets/d/12WCV2C3iiIF8sxpiKplypNA9pRYz5un4GwJMdsssGXA/edit")
         else:
-            st.warning("هذه الصفحة مخصصة لمدير النظام فقط.")
+            st.warning("هذه الصلاحية متاحة لمدير النظام فقط.")
+
+st.markdown("<br><hr><center>منصة إستدامة | تطوير وتصميم: محمد داغستاني 2026 ©</center>", unsafe_allow_index=True)
