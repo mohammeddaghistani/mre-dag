@@ -1,4 +1,9 @@
 streamlit
 pandas
-st-gsheets-connection
-requests
+numpy
+scikit-learn
+pydeck
+streamlit-gsheets
+reportlab
+qrcode
+Pillow
