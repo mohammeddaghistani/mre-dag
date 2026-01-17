@@ -1,4 +1,4 @@
 streamlit
 pandas
 numpy
-streamlit-gsheets
+st-gsheets-connection
